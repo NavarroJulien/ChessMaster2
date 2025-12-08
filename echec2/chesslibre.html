@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Échecs Mobile – Partie Libre</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        padding: 10px;
+        text-align: center;
+        background: #eaeaea;
+    }
+
+    #board {
+        width: 95vw;
+        height: 95vw;
+        max-width: 440px;
+        max-height: 440px;
+        margin: 0 auto 15px auto;
+
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        grid-template-rows: repeat(8, 1fr);
+
+        border: 2px solid #333;
+        border-radius: 6px;
+        overflow: hidden;
+        background: #000;
+    }
+
+    .case {
+        position: relative;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    .clair { background: #f0d9b5; }
+    .fonce { background: #b58863; }
+
+    .case.selected {
+        outline: 3px solid red;
+        box-sizing: border-box;
+    }
+
+    .piece {
+        width: 11vw;
+        height: 11vw;
+        max-width: 52px;
+        max-height: 52px;
+        pointer-events: none;
+    }
+
+    button {
+        padding: 10px 14px;
+        font-size: 17px;
+        margin: 8px;
+        border-radius: 6px;
+        border: 1px solid #444;
+        background: white;
+        cursor: pointer;
+    }
+</style>
+</head>
+
+<body>
+
+<h2>Partie Libre</h2>
+<p>Tape une pièce puis sa destination.</p>
+
+<button id="undoBtn">↩️ Annuler le dernier coup</button>
+
+<div id="board"></div>
+
+<script>
+// ========= VARIABLES =========
+let position = {
+    a8:"bR", b8:"bN", c8:"bB", d8:"bQ", e8:"bK", f8:"bB", g8:"bN", h8:"bR",
+    a7:"bP", b7:"bP", c7:"bP", d7:"bP", e7:"bP", f7:"bP", g7:"bP", h7:"bP",
+    a2:"wP", b2:"wP", c2:"wP", d2:"wP", e2:"wP", f2:"wP", g2:"wP", h2:"wP",
+    a1:"wR", b1:"wN", c1:"wB", d1:"wQ", e1:"wK", f1:"wB", g1:"wN", h1:"wR"
+};
+
+const files = ["a","b","c","d","e","f","g","h"];
+let selectedSquare = null;
+let history = [];
+
+const piecesImg = {
+    "wK": "chess/wK.png", "wQ": "chess/wQ.png", "wR": "chess/wR.png",
+    "wB": "chess/wB.png", "wN": "chess/wN.png", "wP": "chess/w_enzo.png",
+    "bK": "chess/bK.png", "bQ": "chess/bQ.png", "bR": "chess/bR.png",
+    "bB": "chess/bB.png", "bN": "chess/bN.png", "bP": "chess/B_enzo.png"
+};
+
+// ========= PLATEAU =========
+const board = document.getElementById("board");
+
+function renderBoard() {
+    board.innerHTML = "";
+
+    for (let r = 8; r >= 1; r--) {
+        for (let f = 0; f < 8; f++) {
+            let id = files[f] + r;
+            let div = document.createElement("div");
+            div.className = "case " + ((r + f) % 2 ? "fonce" : "clair");
+            div.id = id;
+            div.onclick = () => onClickSquare(id);
+            board.appendChild(div);
+        }
+    }
+}
+
+function refreshBoard() {
+    renderBoard();
+
+    for (let sq in position) {
+        if (position[sq]) {
+            let img = document.createElement("img");
+            img.src = piecesImg[position[sq]];
+            img.className = "piece";
+            let cell = document.getElementById(sq);
+            if (cell) cell.appendChild(img);
+        }
+    }
+
+    if (selectedSquare) {
+        let el = document.getElementById(selectedSquare);
+        if (el) el.classList.add("selected");
+    }
+}
+
+renderBoard();
+refreshBoard();
+
+// ========= INTERACTIONS =========
+function onClickSquare(sq) {
+    document.querySelectorAll(".case").forEach(c => c.classList.remove("selected"));
+
+    if (!selectedSquare) {
+        if (position[sq]) selectedSquare = sq;
+        document.getElementById(sq).classList.add("selected");
+    } else {
+        if (sq !== selectedSquare) makeMove(selectedSquare, sq);
+        selectedSquare = null;
+        refreshBoard();
+    }
+}
+
+// ========= MOUVEMENT =========
+function makeMove(from, to) {
+    if (!position[from]) return;
+
+    history.push(JSON.parse(JSON.stringify(position)));
+
+    const piece = position[from];
+    position[to] = piece;
+    delete position[from];
+
+    // Promotion auto (optionnel)
+    if (piece === "wP" && to[1] === "8") position[to] = "wQ";
+    if (piece === "bP" && to[1] === "1") position[to] = "bQ";
+
+    refreshBoard();
+}
+
+// ========= UNDO =========
+document.getElementById("undoBtn").onclick = () => {
+    if (history.length === 0) return;
+    position = history.pop();
+    refreshBoard();
+};
+</script>
+
+</body>
+</html>
