@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<title>CHEAT – Version Mobile</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+<style>
+    body { 
+        font-family: Arial, sans-serif; 
+        background:#f5f5f5; 
+        padding:10px; 
+        text-align:center;
+    }
+
+    #board { 
+        width: 95vw;
+        height: 95vw;
+        max-width: 440px;
+        max-height: 440px;
+        margin: 0 auto 15px auto;
+
+        display: grid; 
+        grid-template-columns: repeat(8, 1fr);
+        grid-template-rows: repeat(8, 1fr);
+
+        border: 2px solid #333;
+    }
+
+    .case {
+        position: relative;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        cursor: pointer;
+    }
+
+    .clair { background: #f0d9b5; }
+    .fonce { background: #b58863; }
+
+    .piece {
+        width: 11vw;
+        height: 11vw;
+        max-width: 52px;
+        max-height: 52px;
+        pointer-events: none;
+    }
+
+    .coord {
+        position: absolute;
+        font-size: 11px;
+        font-weight: bold;
+        color: rgba(255,255,255,0.9);
+        text-shadow: 1px 1px 2px black;
+        pointer-events: none;
+    }
+    .coord-file { bottom: 2px; right: 3px; }
+    .coord-rank { top: 2px; left: 3px; }
+
+    #bestMoveWhite, #bestMoveBlack {
+        background:#fff;
+        border:1px solid #ccc;
+        padding:8px;
+        margin:5px auto;
+        width:90%;
+        font-size:15px;
+        text-align:left;
+    }
+
+    button {
+        padding:10px 14px;
+        font-size:16px;
+        cursor:pointer;
+        margin-bottom:8px;
+    }
+</style>
+</head>
+
+<body>
+
+<h2>CHEAT</h2>
+<p>Clique une pièce → clique une destination.</p>
+
+<button id="flipBtn">🔄 Inverser l'échiquier</button>
+<button id="undoBtn">↩️ Annuler</button>
+
+<div id="board"></div>
+
+<div id="bestMoveWhite">Meilleur coup blancs : (en attente…)</div>
+<div id="bestMoveBlack">Meilleur coup noirs : (en attente…)</div>
+
+<script>
+// ========= STOCKFISH =========
+async function createEngine() {
+    const response = await fetch("https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js");
+    const text = await response.text();
+    const blob = new Blob([text], { type: "application/javascript" });
+    return new Worker(URL.createObjectURL(blob));
+}
+
+let engine = null;
+let engineReady = false;
+
+(async () => {
+    engine = await createEngine();
+    engine.onmessage = (e) => {
+        if (typeof e.data === "string" && e.data.includes("uciok"))
+            engineReady = true;
+    };
+    engine.postMessage("uci");
+})();
+
+// ========= VARIABLES =========
+let history = [];
+let flipped = false;
+let selectedSquare = null;
+
+const files = ["a","b","c","d","e","f","g","h"];
+
+const piecesImg = {
+    "wK": "chess/wK.png", "wQ": "chess/wQ.png", "wR": "chess/wR.png",
+    "wB": "chess/wB.png", "wN": "chess/wN.png", "wP": "chess/wP.png",
+    "bK": "chess/bK.png", "bQ": "chess/bQ.png", "bR": "chess/bR.png",
+    "bB": "chess/bB.png", "bN": "chess/bN.png", "bP": "chess/bP.png"
+};
+
+let position = {
+    a8:"bR", b8:"bN", c8:"bB", d8:"bQ", e8:"bK", f8:"bB", g8:"bN", h8:"bR",
+    a7:"bP", b7:"bP", c7:"bP", d7:"bP", e7:"bP", f7:"bP", g7:"bP", h7:"bP",
+    a2:"wP", b2:"wP", c2:"wP", d2:"wP", e2:"wP", f2:"wP", g2:"wP", h2:"wP",
+    a1:"wR", b1:"wN", c1:"wB", d1:"wQ", e1:"wK", f1:"wB", g1:"wN", h1:"wR"
+};
+
+// ========= PLATEAU =========
+const board = document.getElementById("board");
+
+function renderBoard() {
+    board.innerHTML = "";
+
+    let ranks = flipped ? [1,2,3,4,5,6,7,8] : [8,7,6,5,4,3,2,1];
+    let fileOrder = flipped ? [...files].reverse() : files;
+
+    for (let r of ranks) {
+        for (let f of fileOrder) {
+
+            let id = f + r;
+            let fileIndex = files.indexOf(f);
+
+            let div = document.createElement("div");
+            div.className = "case " + ((fileIndex + r) % 2 ? "fonce" : "clair");
+            div.id = id;
+            div.onclick = () => onClickSquare(id);
+
+            if (!flipped && r === 1) {
+                let lbl = document.createElement("div");
+                lbl.className = "coord coord-file";
+                lbl.textContent = f;
+                div.appendChild(lbl);
+            }
+
+            if (!flipped && fileIndex === 0) {
+                let lbl2 = document.createElement("div");
+                lbl2.className = "coord coord-rank";
+                lbl2.textContent = r;
+                div.appendChild(lbl2);
+            }
+
+            board.appendChild(div);
+        }
+    }
+}
+
+function refreshBoard() {
+    renderBoard();
+
+    for (let sq in position) {
+        if (!position[sq]) continue;
+        let img = document.createElement("img");
+        img.src = piecesImg[position[sq]];
+        img.className = "piece";
+        let cell = document.getElementById(sq);
+        if (cell) cell.appendChild(img);
+    }
+
+    // ➤ Restaurer la sélection visuelle
+    if (selectedSquare) {
+        let el = document.getElementById(selectedSquare);
+        if (el) el.classList.add("selected");
+    }
+}
+
+renderBoard();
+refreshBoard();
+
+// ========= CLIC PIECE =========
+function onClickSquare(sq) {
+    document.querySelectorAll(".case").forEach(c => c.classList.remove("selected"));
+
+    if (!selectedSquare) {
+        if (position[sq]) selectedSquare = sq;
+        let el = document.getElementById(sq);
+        if (el) el.classList.add("selected");
+    } else {
+        if (selectedSquare !== sq) makeMove(selectedSquare, sq);
+        selectedSquare = null;
+    }
+}
+
+// ========= MOUVEMENT =========
+function makeMove(from, to) {
+    if (!position[from]) return;
+
+    history.push(JSON.parse(JSON.stringify(position)));
+
+    const piece = position[from];
+
+    const pieceName = {
+        "P": "Pion", "N": "Cavalier", "B": "Fou",
+        "R": "Tour", "Q": "Reine", "K": "Roi"
+    }[piece[1]];
+
+    position[to] = piece;
+    delete position[from];
+
+    if (piece === "wP" && to[1] === "8") position[to] = "wQ";
+    if (piece === "bP" && to[1] === "1") position[to] = "bQ";
+
+    refreshBoard();
+    analyse();
+
+    console.log("Tu as joué :", from + to, "(" + pieceName + ")");
+}
+
+// ========= FEN =========
+function toFEN(trait="w") {
+    let fen = "";
+    for (let r = 8; r >= 1; r--) {
+        let empty = 0;
+        for (let f = 0; f < 8; f++) {
+            let sq = files[f] + r;
+            if (!position[sq]) empty++;
+            else {
+                if (empty) { fen += empty; empty = 0; }
+                let p = position[sq];
+                fen += p[0] === "w" ? p[1].toUpperCase() : p[1].toLowerCase();
+            }
+        }
+        if (empty) fen += empty;
+        if (r > 1) fen += "/";
+    }
+    return fen + " " + trait + " KQkq - 0 1";
+}
+
+// ========= ANALYSE =========
+function analyse() {
+    if (!engineReady) return;
+
+    engine.postMessage("stop");
+    engine.postMessage("position fen " + toFEN("w"));
+    engine.postMessage("go depth 12");
+
+    engine.onmessage = (e) => {
+        let line = e.data;
+        if (!line.includes("bestmove")) return;
+
+        let best = line.split(" ")[1];
+        let sqFrom = best.substring(0,2);
+        let pieceChar = position[sqFrom]?.[1] || "P";
+
+        const pieceName = {
+            "P": "Pion", "N": "Cavalier", "B": "Fou",
+            "R": "Tour", "Q": "Reine", "K": "Roi"
+        }[pieceChar];
+
+        document.getElementById("bestMoveWhite").textContent =
+            "Meilleur coup blancs : " + best + " (" + pieceName + ")";
+
+        analyseBlack();
+    };
+}
+
+function analyseBlack() {
+    engine.postMessage("stop");
+    engine.postMessage("position fen " + toFEN("b"));
+    engine.postMessage("go depth 12");
+
+    engine.onmessage = (e) => {
+        let line = e.data;
+        if (!line.includes("bestmove")) return;
+
+        let best = line.split(" ")[1];
+        let sqFrom = best.substring(0,2);
+        let pieceChar = position[sqFrom]?.[1] || "P";
+
+        const pieceName = {
+            "P": "Pion", "N": "Cavalier", "B": "Fou",
+            "R": "Tour", "Q": "Reine", "K": "Roi"
+        }[pieceChar];
+
+        document.getElementById("bestMoveBlack").textContent =
+            "Meilleur coup noirs : " + best + " (" + pieceName + ")";
+    };
+}
+
+// ========= UNDO =========
+document.getElementById("undoBtn").onclick = () => {
+    if (history.length === 0) return;
+    position = history.pop();
+    refreshBoard();
+    analyse();
+};
+
+// ========= FLIP =========
+document.getElementById("flipBtn").onclick = () => {
+    flipped = !flipped;
+    refreshBoard();
+};
+
+</script>
+
+</body>
+</html>
